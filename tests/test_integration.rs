@@ -1,7 +1,7 @@
 
 mod common;
 
-use agenti_flow_lib::{
+use agentic_flow_lib::{
     AgenticSystem, SystemConfig,
     tool_registry::LocalTool,
 };

@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use rmcp::model::CallToolRequestParam;
-use serde::ser;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -144,35 +143,42 @@ impl ToolRegistry {
     }
 
     pub fn get_tools_names(&self) -> Vec<String> {
-        self.available_tools.iter().map(|t| match t {
-            ToolDescriptor::Local { name, .. } => name.clone(),
-            ToolDescriptor::MCP { name, .. } => name.clone(),
-        }).collect()
+        self.available_tools
+            .iter()
+            .map(|t| match t {
+                ToolDescriptor::Local { name, .. } => name.clone(),
+                ToolDescriptor::MCP { name, .. } => name.clone(),
+            })
+            .collect()
     }
 
     pub fn get_tools_for_planner(&self) -> Vec<Value> {
-        self.available_tools.iter().map(|t| match t {
-            ToolDescriptor::Local {
-                name,
-                description,
-                schema,
-            } => (name, description, schema),
-            ToolDescriptor::MCP {
-                name,
-                description,
-                schema,
-                ..
-            } => (name, description, schema),
-        }).map(|(name, description, schema)| {
-            serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": description,
-                    "parameters": schema
-                }
+        self.available_tools
+            .iter()
+            .map(|t| match t {
+                ToolDescriptor::Local {
+                    name,
+                    description,
+                    schema,
+                } => (name, description, schema),
+                ToolDescriptor::MCP {
+                    name,
+                    description,
+                    schema,
+                    ..
+                } => (name, description, schema),
             })
-        }).collect()
+            .map(|(name, description, schema)| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "description": description,
+                        "parameters": schema
+                    }
+                })
+            })
+            .collect()
     }
 
     pub async fn execute_tool(

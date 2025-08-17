@@ -1,4 +1,4 @@
-use agenti_flow_lib::{
+use agentic_flow_lib::{
     errors::AgenticFlowError,
     tool_registry::{ExecutionContext, LocalTool},
 };
