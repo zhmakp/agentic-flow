@@ -42,10 +42,13 @@ impl AgenticSystem {
         let agent = Box::new(Agent::new(
             manager.clone(),
             tool_registry.clone(),
-            llm_client,
+            llm_client.clone(),
         ));
 
-        let planner = Box::new(MultiStepPlanner::new(tool_registry.clone()));
+        let planner = Box::new(MultiStepPlanner::new(
+            llm_client.clone(),
+            tool_registry.clone(),
+        ));
 
         Ok(Self {
             manager,
