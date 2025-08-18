@@ -1,5 +1,3 @@
-use rmcp::handler::server::router::tool;
-use serde::de;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -7,6 +5,7 @@ use tokio::sync::Mutex;
 use crate::errors::AgenticFlowError;
 use crate::llm_client::LLMClient;
 use crate::mcp_manager::MCPManager;
+use crate::model::ChatMessage;
 use crate::tool_registry::{ExecutionContext, ToolRegistry};
 
 pub struct TodoAgent {
@@ -73,16 +72,11 @@ impl TodoAgent {
         context.set("original_instruction".to_string(), serde_json::json!(input));
 
         let tool_registry = self.tool_registry.lock().await;
-        let result = self.llm_client.chat_completions(json! ([
-            {
-                "role": "system",
-                "content": "Process the following instruction and use available tools if necessary."
-            },
-            {
-                "role": "user",
-                "content": input
-            }
-        ]), tool_registry.get_tools_for_planner()).await?;
+        let messages = vec![
+            ChatMessage::system("Process the following instruction and use available tools if necessary.".to_string()),
+            ChatMessage::user(input.to_string()),
+        ];
+        let result = self.llm_client.chat_completions(messages, tool_registry.get_tools_for_planner()).await?;
 
         // For now, return a simple response
         // This would be expanded to include the full planning loop from the existing agent

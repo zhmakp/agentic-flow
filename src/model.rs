@@ -21,6 +21,35 @@ pub struct ChatMessage {
     pub tool_calls: Option<Vec<ToolCall>>,
 }
 
+impl ChatMessage{
+    pub fn user(content: String) -> Self {
+        Self {
+            role: "user".to_string(),
+            content,
+            thinking: None,
+            tool_calls: None,
+        }
+    }
+
+    pub fn assistant(content: String) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content,
+            thinking: None,
+            tool_calls: None,
+        }
+    }
+
+    pub fn system(content: String) -> Self {
+        Self {
+            role: "system".to_string(),
+            content,
+            thinking: None,
+            tool_calls: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct OllamaResponse {
     pub message: ChatMessage,

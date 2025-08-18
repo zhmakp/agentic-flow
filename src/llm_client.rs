@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 use crate::{
     errors::AgenticFlowError,
-    model::{ChatResponse, OllamaResponse, OpenRouterResponse},
+    model::{ChatMessage, ChatResponse, OllamaResponse, OpenRouterResponse},
 };
 
 #[derive(Debug, Clone)]
@@ -55,13 +55,13 @@ pub trait LLMProvider: Send + Sync {
 
     async fn chat_completions(
         &self,
-        body: Value,
+        messages: Vec<ChatMessage>,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError>;
 
     async fn send_request(
         &self,
-        body: Value,
+        messages: Vec<ChatMessage>,
         tools: Vec<Value>,
         endpoint: &str,
     ) -> Result<Response, AgenticFlowError> {
@@ -75,7 +75,7 @@ pub trait LLMProvider: Send + Sync {
             )
             .json(&json!({
                 "model": self.model(),
-                "messages": body,
+                "messages": messages,
                 "stream": false,
                 "tools": tools
             }))
@@ -104,9 +104,9 @@ struct OllamaProvider {
 }
 
 impl OllamaProvider {
-    pub fn new(base_url: String, model: OllamaModel) -> Self {
+    pub fn new(model: OllamaModel) -> Self {
         Self {
-            base_url,
+            base_url: "http://localhost:11434".to_string(),
             client: HttpClient::new(),
             model: model.to_string(),
         }
@@ -129,10 +129,10 @@ impl LLMProvider for OllamaProvider {
 
     async fn chat_completions(
         &self,
-        body: Value,
+        messages: Vec<ChatMessage>,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        let response = self.send_request(body, tools, "api/chat").await?;
+        let response = self.send_request(messages, tools, "api/chat").await?;
 
         let response_text = response.text().await.unwrap();
         serde_json::from_str::<OllamaResponse>(&response_text)
@@ -183,10 +183,10 @@ impl LLMProvider for OpenRouterProvider {
 
     async fn chat_completions(
         &self,
-        body: Value,
+        messages: Vec<ChatMessage>,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        let response = self.send_request(body, tools, "chat/completions").await?;
+        let response = self.send_request(messages, tools, "chat/completions").await?;
 
         let response_text = response.text().await.unwrap();
         serde_json::from_str::<OpenRouterResponse>(&response_text)
@@ -203,10 +203,7 @@ pub struct LLMClient {
 impl LLMClient {
     pub fn from_ollama(model: OllamaModel) -> Self {
         Self {
-            inner: Arc::new(OllamaProvider::new(
-                "http://localhost:11434".to_string(),
-                model,
-            )),
+            inner: Arc::new(OllamaProvider::new(model)),
         }
     }
 
@@ -218,9 +215,9 @@ impl LLMClient {
 
     pub async fn chat_completions(
         &self,
-        body: Value,
+        messages: Vec<ChatMessage>,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        self.inner.chat_completions(body, tools).await
+        self.inner.chat_completions(messages, tools).await
     }
 }

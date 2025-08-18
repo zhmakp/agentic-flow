@@ -5,10 +5,7 @@ use tokio::sync::Mutex;
 use serde_json::{Value, json};
 
 use crate::{
-    agent::TodoAgent,
-    errors::AgenticFlowError,
-    llm_client::{LLMClient, OllamaModel},
-    tool_registry::{ExecutionContext, ToolRegistry},
+    agent::TodoAgent, errors::AgenticFlowError, llm_client::{LLMClient, OllamaModel}, model::ChatMessage, tool_registry::{ExecutionContext, ToolRegistry}
 };
 
 pub struct Planner {
@@ -54,18 +51,10 @@ impl Planner {
         &self,
         context: &ExecutionContext,
     ) -> Result<String, AgenticFlowError> {
-        let messages = json!([
-            {
-                "role": "system",
-                "content": "Synthesize the following context into result"
-            },
-            {
-                "role": "user",
-                "content": format!(
-                    "Context: {}", json!(context.data())
-                )
-            }
-        ]);
+        let messages = vec![
+            ChatMessage::system("Synthesize the following context into result".to_string()),
+            ChatMessage::user(format!("Context: {}", json!(context.data())))
+        ];
 
         LLMClient::from_ollama(OllamaModel::Qwen3_8B)
             .chat_completions(messages, vec![])
@@ -93,16 +82,10 @@ impl Planner {
             })
     }
 
-    fn generate_steps_prompt(&self, task: &str) -> Value {
-        json!([
-            {
-                "role": "system",
-                "content": "Analyze the task and create a multi-step plan."
-            },
-            {
-                "role": "user",
-                "content": task
-            }
-        ])
+    fn generate_steps_prompt(&self, task: &str) -> Vec<ChatMessage> {
+        vec![
+            ChatMessage::system("Analyze the task and create a multi-step plan.".to_string()),
+            ChatMessage::user(task.to_string()),
+        ]
     }
 }
