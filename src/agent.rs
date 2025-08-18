@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -6,13 +6,13 @@ use crate::errors::AgenticFlowError;
 use crate::llm_client::LLMClient;
 use crate::mcp_manager::MCPManager;
 use crate::model::ChatMessage;
+use crate::planner::{Executor, PlanStep};
 use crate::tool_registry::{ExecutionContext, ToolRegistry};
 
-pub struct TodoAgent {
+pub struct Agent {
     manager: Arc<Mutex<MCPManager>>,
     tool_registry: Arc<Mutex<ToolRegistry>>,
     llm_client: LLMClient,
-    config: AgentConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -37,18 +37,16 @@ pub struct AgentResponse {
     pub execution_time_ms: u64,
 }
 
-impl TodoAgent {
+impl Agent {
     pub fn new(
         manager: Arc<Mutex<MCPManager>>,
         tool_registry: Arc<Mutex<ToolRegistry>>,
         llm_client: LLMClient,
-        config: AgentConfig,
     ) -> Self {
         Self {
             manager,
             tool_registry,
             llm_client,
-            config: config,
         }
     }
 
@@ -66,30 +64,37 @@ impl TodoAgent {
             .await
     }
 
-    pub async fn process_request(&self, input: &str) -> Result<AgentResponse, AgenticFlowError> {
-        let start_time = std::time::Instant::now();
-        let mut context = ExecutionContext::new();
-        context.set("original_instruction".to_string(), serde_json::json!(input));
-
-        let tool_registry = self.tool_registry.lock().await;
+    async fn synthesize_result(
+        &self,
+        context: &ExecutionContext,
+    ) -> Result<String, AgenticFlowError> {
         let messages = vec![
-            ChatMessage::system("Process the following instruction and use available tools if necessary.".to_string()),
-            ChatMessage::user(input.to_string()),
+            ChatMessage::system("Synthesize the following context into result".to_string()),
+            ChatMessage::user(format!("Context: {}", json!(context.data()))),
         ];
-        let result = self.llm_client.chat_completions(messages, tool_registry.get_tools_for_planner()).await?;
 
-        // For now, return a simple response
-        // This would be expanded to include the full planning loop from the existing agent
-        let response = AgentResponse {
-            content: format!("Processed: {}", json!(result.message())),
-            tools_used: vec![],
-            execution_time_ms: start_time.elapsed().as_millis() as u64,
-        };
-
-        Ok(response)
+        self.llm_client
+            .chat_completions(messages, vec![])
+            .await
+            .map(|response| response.message().content.to_string())
     }
+}
 
-    pub async fn get_available_tools(&self) -> Vec<String> {
-        self.tool_registry.lock().await.get_tools_names()
+#[async_trait::async_trait]
+impl Executor for Agent {
+    async fn execute(&self, steps: Vec<PlanStep>) -> Result<String, AgenticFlowError> {
+        let mut context = ExecutionContext::new();
+        let mut step = 1;
+
+        for PlanStep { tool_name, params } in steps {
+            let result = self
+                .execute_tool(&tool_name, params, &mut context)
+                .await
+                .unwrap();
+            context.set(format!("{}: {}", step, tool_name), result);
+            step += 1;
+        }
+
+        self.synthesize_result(&context).await
     }
 }

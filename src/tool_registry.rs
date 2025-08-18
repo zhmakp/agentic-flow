@@ -215,7 +215,6 @@ impl ToolRegistry {
             .ok_or(AgenticFlowError::ServerNotFound)?;
 
         let result = connection
-            .service
             .call_tool(CallToolRequestParam {
                 name: descriptor.tool_name.clone().into(),
                 arguments: params.as_object().cloned(),

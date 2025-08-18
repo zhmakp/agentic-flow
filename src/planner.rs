@@ -1,69 +1,54 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc, vec};
 
 use tokio::sync::Mutex;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::{
-    agent::TodoAgent, errors::AgenticFlowError, llm_client::{LLMClient, OllamaModel}, model::ChatMessage, tool_registry::{ExecutionContext, ToolRegistry}
+    errors::AgenticFlowError,
+    llm_client::{LLMClient, OllamaModel},
+    model::ChatMessage,
+    tool_registry::ToolRegistry,
 };
 
-pub struct Planner {
-    agent: TodoAgent,
+pub struct PlanStep {
+    pub tool_name: String,
+    pub params: Value,
+}
+
+#[async_trait::async_trait]
+pub trait Executor: Send + Sync {
+    async fn execute(&self, steps: Vec<PlanStep>) -> Result<String, AgenticFlowError>;
+}
+
+#[async_trait::async_trait]
+pub trait Planner: Send + Sync {
+    fn tool_registry(&self) -> Arc<Mutex<ToolRegistry>>;
+    async fn plan(&self, task: &str) -> Result<Vec<PlanStep>, AgenticFlowError>;
+}
+
+pub struct MultiStepPlanner {
     tool_registry: Arc<Mutex<ToolRegistry>>,
 }
 
-impl Planner {
-    pub fn new(agent: TodoAgent, tool_registry: Arc<Mutex<ToolRegistry>>) -> Self {
-        Self {
-            agent,
-            tool_registry,
-        }
+impl MultiStepPlanner {
+    pub fn new(tool_registry: Arc<Mutex<ToolRegistry>>) -> Self {
+        Self { tool_registry }
+    }
+}
+
+#[async_trait::async_trait]
+impl Planner for MultiStepPlanner {
+    fn tool_registry(&self) -> Arc<Mutex<ToolRegistry>> {
+        self.tool_registry.clone()
     }
 
-    pub async fn plan_and_execute(&self, task: &str) -> Result<String, AgenticFlowError> {
-        let steps = self
-            .generate_steps(task)
-            .await
-            .map_err(|e| {
-                println!("Error generating steps: {}", e);
-                e
-            })
-            .unwrap_or(vec![]);
-
-        let mut context = ExecutionContext::new();
-        let mut step = 1;
-        for (tool, args) in steps {
-            println!("Executing step {}: {} with args {:?}", step, tool, args);
-            let result = self
-                .agent
-                .execute_tool(&tool, args, &mut context)
-                .await
-                .unwrap();
-            context.set(format!("{}: {}", step, tool), result);
-            step += 1;
-        }
-
-        self.synthesize_result(&context).await
-    }
-
-    async fn synthesize_result(
-        &self,
-        context: &ExecutionContext,
-    ) -> Result<String, AgenticFlowError> {
+    async fn plan(&self, task: &str) -> Result<Vec<PlanStep>, AgenticFlowError> {
         let messages = vec![
-            ChatMessage::system("Synthesize the following context into result".to_string()),
-            ChatMessage::user(format!("Context: {}", json!(context.data())))
+            ChatMessage::system("Analyze the task and create a multi-step plan.".to_string()),
+            ChatMessage::user(task.to_string()),
         ];
 
-        LLMClient::from_ollama(OllamaModel::Qwen3_8B)
-            .chat_completions(messages, vec![])
-            .await
-            .map(|response| response.message().content.to_string())
-    }
-
-    async fn generate_steps(&self, task: &str) -> Result<Vec<(String, Value)>, AgenticFlowError> {
-        let messages = self.generate_steps_prompt(task);
         let tools = self.tool_registry.lock().await.get_tools_for_planner();
 
         LLMClient::from_ollama(OllamaModel::Qwen3_8B)
@@ -75,17 +60,12 @@ impl Planner {
                     .tool_calls
                     .iter()
                     .flat_map(|f| {
-                        f.iter()
-                            .map(|t| (t.function.name.clone(), t.function.arguments.clone()))
+                        f.iter().map(|t| PlanStep {
+                            tool_name: t.function.name.clone(),
+                            params: t.function.arguments.clone(),
+                        })
                     })
                     .collect()
             })
-    }
-
-    fn generate_steps_prompt(&self, task: &str) -> Vec<ChatMessage> {
-        vec![
-            ChatMessage::system("Analyze the task and create a multi-step plan.".to_string()),
-            ChatMessage::user(task.to_string()),
-        ]
     }
 }

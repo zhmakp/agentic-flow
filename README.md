@@ -32,32 +32,45 @@ agentic-flow = { git = "https://github.com/zhmakp/agentic-flow" }
 ### 1. LLM Client (Minimal Example)
 
 ```rust
-use serde_json::json;
-use agentic_flow::llm_client::{LLMClient, OllamaModel};
+use agentic_flow::llm_client::{LLMClient, OllamaModel, OpenRouterModel};
+use agentic_flow::model::ChatMessage;
 use agentic_flow::errors::AgenticFlowError;
+use serde_json::Value;
 
 #[tokio::main]
 async fn main() -> Result<(), AgenticFlowError> {
     // Create a client for Ollama (local instance)
     let client = LLMClient::from_ollama(OllamaModel::Gemma);
+    // Or use OpenRouter:
+    // let client = LLMClient::from_open_router(OpenRouterModel::Flash2);
 
     // Build a minimal `messages` payload
-    let messages = json!([
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Summarize the following text: 'Rust is fast.'"}
-    ]);
+    let messages = vec![
+        ChatMessage::system("You are a helpful assistant."),
+        ChatMessage::user("Summarize the following text: 'Rust is fast.'"),
+    ];
 
-    let tools = Vec::new();
+    let tools: Vec<Value> = Vec::new();
     let response = client.chat_completions(messages, tools).await?;
     println!("Got response: {:?}", response);
     Ok(())
 }
 ```
 
+#### LLMClient Usage
+
+- Use `LLMClient::from_ollama(model)` for local Ollama models (e.g., `OllamaModel::Gemma`, `OllamaModel::Qwen3_8B`).
+- Use `LLMClient::from_open_router(model)` for OpenRouter models (e.g., `OpenRouterModel::Flash2`).
+- The `chat_completions` method expects a `Vec<ChatMessage>` and a `Vec<Value>` for tools (can be empty).
+- The response is a boxed trait object implementing `ChatResponse` (see `model.rs`).
+
+**Environment:**
+- For OpenRouter, set the `OPENROUTER_API_KEY` environment variable.
+
 ### 2. Agentic System (Planning & Tool Use)
 
 ```rust
-use agentic_flow::{AgenticSystem, SystemConfig, tool_registry::LocalTool};
+use agentic_flow::{AgenticSystem, SystemConfig, tool_registry::LocalTool, llm_client::{LLMClient, OllamaModel}};
 use agentic_flow::errors::AgenticFlowError;
 
 #[tokio::main]
@@ -65,7 +78,8 @@ async fn main() -> Result<(), AgenticFlowError> {
     // Prepare your tools (implement LocalTool for your custom tools)
     let tools: Vec<Box<dyn LocalTool>> = vec![];
     let config = SystemConfig::default();
-    let agentic_system = AgenticSystem::new(config, tools).await?;
+    let llm_client = LLMClient::from_ollama(OllamaModel::Gemma);
+    let agentic_system = AgenticSystem::new(config, tools, llm_client).await?;
 
     // Plan and execute a task
     let result = agentic_system.plan_and_execute("your task here").await?;
@@ -82,9 +96,10 @@ Integration tests demonstrate how to use the agentic system with mock tools:
 #[tokio::test]
 async fn test_local_tool_calling() {
     let tools = vec![Box::new(MockTool) as Box<dyn LocalTool>];
-    let agentic_system = AgenticSystem::new(SystemConfig::example(), tools).await.unwrap();
-    let result = agentic_system.process_user_request("execute testing tool").await.unwrap();
-    assert!(result.content.contains("mock_tool"));
+    let llm_client = LLMClient::from_ollama(OllamaModel::Gemma); // or a mock LLM client
+    let agentic_system = AgenticSystem::new(SystemConfig::example(), tools, llm_client).await.unwrap();
+    let result = agentic_system.plan_and_execute("execute testing tool").await.unwrap();
+    assert!(result.contains("mock_tool"));
 }
 ```
 
@@ -92,8 +107,8 @@ async fn test_local_tool_calling() {
 
 - `AgenticSystem` is the main entry point for agent orchestration and planning.
 - `SystemConfig` provides configuration for MCP servers, LLMs, and agent behavior.
-- Tools must implement the `LocalTool` trait and can be registered at system startup.
-- LLM integration is via the `LLMClient` abstraction.
+- Tools must implement the `LocalTool` trait and are registered asynchronously at system startup.
+- LLM integration is via the `LLMClient` abstraction, which must be provided to `AgenticSystem::new`.
 
 ## Contributing
 

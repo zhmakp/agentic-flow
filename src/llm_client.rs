@@ -200,6 +200,12 @@ pub struct LLMClient {
     inner: Arc<dyn LLMProvider>,
 }
 
+impl Default for LLMClient {
+    fn default() -> Self {
+        Self::from_ollama(OllamaModel::Qwen3_8B)
+    }
+}
+
 impl LLMClient {
     pub fn from_ollama(model: OllamaModel) -> Self {
         Self {
