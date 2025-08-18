@@ -55,33 +55,6 @@ pub struct OllamaResponse {
     pub message: ChatMessage,
 }
 
-
-// {
-//   "id": "gen-12345",
-//   "choices": [
-//     {
-//       "message": {
-//         "role": "assistant",
-//         "content": "The meaning of life is a complex and subjective question...",
-//         "refusal": ""
-//       },
-//       "logprobs": {},
-//       "finish_reason": "stop",
-//       "index": 0
-//     }
-//   ],
-//   "provider": "OpenAI",
-//   "model": "openai/gpt-3.5-turbo",
-//   "object": "chat.completion",
-//   "created": 1735317796,
-//   "system_fingerprint": {},
-//   "usage": {
-//     "prompt_tokens": 14,
-//     "completion_tokens": 163,
-//     "total_tokens": 177
-//   }
-// }
-
 #[derive(Serialize, Deserialize)]
 pub struct OpenRouterResponse {
     choices: Vec<OpenRouterChoice>,
