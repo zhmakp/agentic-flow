@@ -6,6 +6,7 @@ pub mod mcp_manager;
 pub mod model;
 pub mod planner;
 pub mod tool_registry;
+pub mod actor;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
