@@ -5,7 +5,9 @@ use tokio::sync::Mutex;
 use serde_json::Value;
 
 use crate::{
-    errors::AgenticFlowError, llm_client::LLMClient, model::ChatMessage,
+    errors::AgenticFlowError,
+    llm_client::LLMClient,
+    model::{ChatMessage, ToolCall},
     tool_registry::ToolRegistry,
 };
 
@@ -53,16 +55,23 @@ impl Planner for MultiStepPlanner {
             .await
             .map(|response| {
                 let message = response.message();
-                message
-                    .tool_calls
-                    .iter()
-                    .flat_map(|f| {
-                        f.iter().map(|t| PlanStep {
-                            tool_name: t.function.name.clone(),
-                            params: t.function.arguments.clone(),
-                        })
-                    })
-                    .collect()
+                collect_as_plan_steps(&message.tool_calls)
             })
     }
+}
+
+impl From<&ToolCall> for PlanStep {
+    fn from(tool_call: &ToolCall) -> Self {
+        PlanStep {
+            tool_name: tool_call.function.name.clone(),
+            params: tool_call.function.arguments.clone(),
+        }
+    }
+}
+
+fn collect_as_plan_steps(tool_calls: &Option<Vec<ToolCall>>) -> Vec<PlanStep> {
+    tool_calls
+        .iter()
+        .flat_map(|f| f.into_iter().map(|tool_call| tool_call.into()))
+        .collect()
 }
