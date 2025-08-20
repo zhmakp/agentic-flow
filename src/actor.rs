@@ -105,13 +105,13 @@ impl ActorSystem {
         let handle = ActorHandle::new(id, tx);
         
         // Spawn actor task
-        let actor_handle = handle.clone();
         tokio::spawn(async move {
             if let Err(e) = actor.initialize().await {
                 eprintln!("Actor {} initialization failed: {}", id.0, e);
                 return;
             }
-            
+            // ATTENTION: The following loop processes messages sequentially. Each message is awaited before the next is handled.
+            // This is likely the cause of the test failure for non-blocking/concurrent message handling.
             while let Some(message) = rx.recv().await {
                 match message {
                     Message::Shutdown => {
@@ -119,6 +119,7 @@ impl ActorSystem {
                         break;
                     }
                     msg => {
+                        // ATTENTION: handle_message is awaited here, so slow messages block the queue.
                         if let Err(e) = actor.handle_message(msg).await {
                             eprintln!("Actor {} error handling message: {}", id.0, e);
                         }
@@ -176,8 +177,11 @@ impl CoordinatorActor {
     }
 }
 
-mod examples {
+mod test_actor_system {
     use serde_json::json;
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
+use tokio::time::{sleep, Duration};
 
     use super::*;
 
@@ -253,6 +257,115 @@ mod examples {
         }
 
         system.shutdown_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_multiple_non_blocking_messages() {
+        let mut system = ActorSystem::new();
+        let echo_handle = system.spawn_actor(EchoActor).await;
+
+        // Send multiple messages without awaiting their responses immediately
+        let mut receivers = vec![];
+        for i in 0..20 {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let msg = Message::ExecuteTool {
+                tool_name: format!("nb_tool_{}", i),
+                params: json!({ "idx": i }),
+                respond_to: tx,
+            };
+            echo_handle.send(msg).await.unwrap();
+            receivers.push((i, rx));
+        }
+
+        // Now await all responses
+        for (i, rx) in receivers {
+            let response = rx.await.unwrap().unwrap();
+            assert_eq!(response["tool"], format!("nb_tool_{}", i));
+            assert_eq!(response["params"]["idx"], i);
+        }
+
+        system.shutdown_all().await.unwrap();
+    }
+    #[tokio::test]
+    async fn test_message_handling_is_non_blocking() {
+
+        struct SlowActor {
+            call_count: Arc<TokioMutex<u32>>,
+        }
+
+        #[async_trait::async_trait]
+        impl Actor for SlowActor {
+            async fn handle_message(&mut self, message: Message) -> Result<(), AgenticFlowError> {
+                match message {
+                    Message::ExecuteTool { tool_name, params, respond_to } => {
+                        // Simulate slow processing
+                        sleep(Duration::from_millis(200)).await;
+                        let mut count = self.call_count.lock().await;
+                        *count += 1;
+                        let _ = respond_to.send(Ok(serde_json::json!({
+                            "tool": tool_name,
+                            "params": params,
+                            "count": *count
+                        })));
+                    }
+                    Message::HealthCheck { respond_to } => {
+                        let _ = respond_to.send(true);
+                    }
+                    Message::Shutdown => {}
+                }
+                Ok(())
+            }
+        }
+
+        let call_count = Arc::new(TokioMutex::new(0));
+        let mut system = ActorSystem::new();
+        let slow_actor = SlowActor { call_count: call_count.clone() };
+        let slow_actor2 = SlowActor { call_count: call_count.clone() };
+        let handle1 = system.spawn_actor(slow_actor).await;
+        let handle2 = system.spawn_actor(slow_actor2).await;
+
+        // Send two messages in quick succession
+        let (tx1, rx1) = tokio::sync::oneshot::channel();
+        let (tx2, rx2) = tokio::sync::oneshot::channel();
+
+        let msg1 = Message::ExecuteTool {
+            tool_name: "slow1".to_string(),
+            params: serde_json::json!({}),
+            respond_to: tx1,
+        };
+        let msg2 = Message::ExecuteTool {
+            tool_name: "slow2".to_string(),
+            params: serde_json::json!({}),
+            respond_to: tx2,
+        };
+
+        handle1.send(msg1).await.unwrap();
+        handle2.send(msg2).await.unwrap();
+
+        // Both futures should complete after ~200ms, not ~400ms
+        let start = tokio::time::Instant::now();
+        let (res1, res2) = tokio::join!(rx1, rx2);
+        let elapsed = start.elapsed();
+
+        assert!(elapsed < Duration::from_millis(400), "Messages handled sequentially, not concurrently");
+        assert!(res1.is_ok() && res2.is_ok());
+        let v1 = res1.unwrap().unwrap();
+        let v2 = res2.unwrap().unwrap();
+        assert_eq!(v1["tool"], "slow1");
+        assert_eq!(v2["tool"], "slow2");
+        assert!(v1["count"].as_u64().is_some());
+        assert!(v2["count"].as_u64().is_some());
+
+        system.shutdown_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_actor_id_uniqueness() {
+        let mut ids = std::collections::HashSet::new();
+        for _ in 0..100 {
+            let id = ActorId::new();
+            assert!(ids.insert(id));
+        }
     }
 
     #[tokio::test]
