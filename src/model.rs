@@ -66,7 +66,7 @@ struct OpenRouterChoice {
     finish_reason: String,
 }
 
-pub trait ChatResponse {
+pub trait ChatResponse: Send + Sync {
     fn message(&self) -> &ChatMessage;
 }
 

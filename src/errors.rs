@@ -5,6 +5,7 @@ pub enum AgenticFlowError {
     ApiClientError(String),
     ParseError(String),
     NetworkError(String),
+    ExecutionError(String),
     ServerNotFound
 }
 
@@ -17,6 +18,7 @@ impl std::fmt::Display for AgenticFlowError {
             AgenticFlowError::ParseError(msg) => write!(f, "Parse error: {}", msg),
             AgenticFlowError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             AgenticFlowError::ServerNotFound => write!(f, "Server not found"),
+            AgenticFlowError::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
         }
     }
 }

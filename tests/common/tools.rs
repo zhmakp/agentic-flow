@@ -17,7 +17,7 @@ impl LocalTool for MockTool {
     }
 
     fn parameter_schema(&self) -> serde_json::Value {
-        json!({})
+        json!({"type": "object", "properties": {"foo": {"type": "string"}}})
     }
 
     async fn execute(
