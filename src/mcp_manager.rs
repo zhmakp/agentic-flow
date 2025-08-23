@@ -3,11 +3,14 @@ use rmcp::{
     service::RunningService,
     transport::{ConfigureCommandExt, TokioChildProcess},
 };
-use serde::{Deserialize, Serialize};
+
 use std::collections::HashMap;
 use tokio::process::Command;
 
-use crate::{config::{MCPConfig, ServerType}, errors::AgenticFlowError};
+use crate::{
+    config::{MCPConfig, ServerType},
+    errors::AgenticFlowError,
+};
 
 #[derive(Debug, Clone)]
 pub struct MCPTool {
@@ -21,7 +24,6 @@ pub struct MCPManager {
     active_servers: HashMap<String, RunningService<RoleClient, ()>>,
     config: MCPConfig,
 }
-
 
 impl MCPManager {
     pub fn new(config: MCPConfig) -> Self {
@@ -68,10 +70,7 @@ impl MCPManager {
         }
         .unwrap();
 
-        self.active_servers.insert(
-            server_name.to_string(),
-            service
-        );
+        self.active_servers.insert(server_name.to_string(), service);
 
         Ok(())
     }
@@ -98,14 +97,20 @@ impl MCPManager {
             .ok_or(AgenticFlowError::ServerNotFound)?;
 
         if let Ok(tools) = service.list_tools(Default::default()).await {
-            Ok(tools.tools.into_iter().map(|tool| MCPTool {
-                name: tool.name.clone().to_string(),
-                description: tool.description.clone().unwrap_or_default().to_string(),
-                input_schema: tool.schema_as_json_value(),
-                server_name: server_name.to_string(),
-            }).collect())
+            Ok(tools
+                .tools
+                .into_iter()
+                .map(|tool| MCPTool {
+                    name: tool.name.clone().to_string(),
+                    description: tool.description.clone().unwrap_or_default().to_string(),
+                    input_schema: tool.schema_as_json_value(),
+                    server_name: server_name.to_string(),
+                })
+                .collect())
         } else {
-            Err(AgenticFlowError::ToolError("Failed to list tools".to_string()))
+            Err(AgenticFlowError::ToolError(
+                "Failed to list tools".to_string(),
+            ))
         }
     }
 
@@ -113,7 +118,10 @@ impl MCPManager {
         self.active_servers.keys().cloned().collect()
     }
 
-    pub fn get_server_connection(&self, server_name: &str) -> Option<&RunningService<RoleClient, ()>> {
+    pub fn get_server_connection(
+        &self,
+        server_name: &str,
+    ) -> Option<&RunningService<RoleClient, ()>> {
         self.active_servers.get(server_name)
     }
 }

@@ -1,31 +1,41 @@
-use std::sync::Arc;
-
 use agentic_flow_lib::{
     errors::AgenticFlowError,
     llm_client::LLMProvider,
-    model::{ChatMessage, ChatResponse, OllamaResponse},
+    model::{
+        ChatMessage, ChatResponse, OllamaCompletionResponse, OllamaResponse,
+    },
 };
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use tokio::sync::Mutex;
 
 pub struct MockLLMProvider {
-    response: Arc<Mutex<Option<ChatMessage>>>,
+    chat_response: OllamaResponse,
+    completion_response: OllamaCompletionResponse,
 }
 
 impl MockLLMProvider {
     pub fn new() -> Self {
         Self {
-            response: Arc::new(Mutex::new(Some(ChatMessage::assistant("".to_string())))),
+            chat_response: OllamaResponse::default(),
+            completion_response: OllamaCompletionResponse {
+                response: "".to_string(),
+            },
         }
     }
 
-    pub async fn set_response(&self, resp: Option<ChatMessage>) {
-        self.response
-            .lock()
-            .await
-            .replace(resp.unwrap_or_else(|| ChatMessage::assistant("".to_string())));
+    pub async fn with_completion_response(mut self, resp: Option<String>) -> Self {
+        self.completion_response = OllamaCompletionResponse {
+            response: resp.unwrap_or_else(|| "".to_string()),
+        };
+        self
+    }
+
+    pub async fn with_chat_response(mut self, resp: Option<ChatMessage>) -> Self {
+        self.chat_response = OllamaResponse {
+            message: resp.unwrap_or_else(|| ChatMessage::assistant("".to_string())),
+        };
+        self
     }
 }
 
@@ -39,20 +49,20 @@ impl LLMProvider for MockLLMProvider {
         unimplemented!("Mock model does not have a base URL")
     }
 
-    fn model(&self) -> &str {
-        unimplemented!("Mock model does not have a model name")
-    }
-
     async fn chat_completions(
         &self,
         _messages: Vec<ChatMessage>,
         _temperature: f32,
         _tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        let response = self.response.lock().await.take();
-        let chat_message = response.unwrap_or(ChatMessage::assistant("".to_string()));
-        Ok(Box::new(OllamaResponse {
-            message: chat_message,
-        }) as Box<dyn ChatResponse>)
+        Ok(Box::new(self.chat_response.clone()))
+    }
+
+    async fn completion(
+        &self,
+        _prompt: String,
+        _temperature: f32,
+    ) -> Result<Box<dyn agentic_flow_lib::model::CompletionResponse>, AgenticFlowError> {
+        Ok(Box::new(self.completion_response.clone()))
     }
 }

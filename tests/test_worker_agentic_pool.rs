@@ -24,8 +24,7 @@ async fn make_mock_agent(response: Option<ChatMessage>) -> Arc<Mutex<Agent>> {
     tool_registry.register_local_tool(Box::new(EchoTool));
     let dummy_tool_registry = Arc::new(Mutex::new(tool_registry));
 
-    let provider = MockLLMProvider::new();
-    provider.set_response(response).await;
+    let provider = MockLLMProvider::new().with_chat_response(response).await;
 
     let dummy_llm_client = LLMClient::from(provider);
 

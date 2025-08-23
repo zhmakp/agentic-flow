@@ -55,7 +55,7 @@ pub struct ServerConfig {
 
 #[derive(Debug, Clone)]
 pub struct LLMConfig {
-    pub model: &'static str,
+    pub model: String,
 }
 
 impl Default for LLMConfig {
@@ -69,7 +69,8 @@ impl Default for LLMConfig {
 // Example configuration helper
 impl SystemConfig {
     pub fn example() -> Self {
-        let mut servers = HashMap::new();
+        let servers = HashMap::new();
+        // Example:
         // servers.insert("web_search".to_string(), mcp_manager::ServerConfig {
         //     server_type: mcp_manager::ServerType::Python,
         //     module_name: Some("mcp_server_brave_search".to_string()),

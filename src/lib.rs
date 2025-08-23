@@ -28,7 +28,6 @@ pub struct AgenticSystem {
     agent: Box<dyn Executor>,
     tool_registry: Arc<Mutex<ToolRegistry>>,
     planner: Box<dyn Planner>,
-    system_config: SystemConfig,
 }
 
 impl AgenticSystem {
@@ -54,7 +53,6 @@ impl AgenticSystem {
         Ok(Self {
             manager,
             agent,
-            system_config: config,
             tool_registry,
             planner,
         })

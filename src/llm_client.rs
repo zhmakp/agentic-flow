@@ -4,24 +4,25 @@ use async_trait::async_trait;
 use reqwest::{Client as HttpClient, Response};
 use serde_json::{Value, json};
 
-use crate::{
-    errors::AgenticFlowError,
-    model::{ChatMessage, ChatResponse, OllamaResponse, OpenRouterResponse},
-};
+use crate::{errors::AgenticFlowError, model::*};
 
 #[derive(Debug, Clone)]
 pub enum OllamaModel {
     GPToss,
-    Gemma,
+    Gemma2_2b,
+    Gemma3_4b,
     Qwen3_8B,
+    Custom(String),
 }
 
 impl OllamaModel {
-    pub fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> String {
         match self {
-            OllamaModel::GPToss => "gpt-oss:20b",
-            OllamaModel::Gemma => "gemma3:4b",
-            OllamaModel::Qwen3_8B => "qwen3:8b",
+            OllamaModel::GPToss => "gpt-oss:20b".to_string(),
+            OllamaModel::Gemma2_2b => "gemma2:2b".to_string(),
+            OllamaModel::Gemma3_4b => "gemma3:4b".to_string(),
+            OllamaModel::Qwen3_8B => "qwen3:8b".to_string(),
+            OllamaModel::Custom(name) => name.clone(),
         }
     }
 }
@@ -30,13 +31,15 @@ impl OllamaModel {
 pub enum OpenRouterModel {
     Flash2,
     GPTMini,
+    Custom(String),
 }
 
 impl OpenRouterModel {
-    pub fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> String{
         match self {
-            OpenRouterModel::Flash2 => "google/gemini-2.0-flash-001",
-            OpenRouterModel::GPTMini => "openai/gpt-4o-mini",
+            OpenRouterModel::Flash2 => "google/gemini-2.0-flash-001".to_string(),
+            OpenRouterModel::GPTMini => "openai/gpt-4o-mini".to_string(),
+            OpenRouterModel::Custom(name) => name.clone(),
         }
     }
 }
@@ -47,11 +50,15 @@ pub trait LLMProvider: Send + Sync {
 
     fn base_url(&self) -> &str;
 
-    fn model(&self) -> &str;
-
     fn api_key(&self) -> Option<String> {
         None
     }
+
+    async fn completion(
+        &self,
+        prompt: String,
+        temperature: f32,
+    ) -> Result<Box<dyn CompletionResponse>, AgenticFlowError>;
 
     async fn chat_completions(
         &self,
@@ -62,9 +69,7 @@ pub trait LLMProvider: Send + Sync {
 
     async fn send_request(
         &self,
-        messages: Vec<ChatMessage>,
-        temperature: f32,
-        tools: Vec<Value>,
+        request: Value,
         endpoint: &str,
     ) -> Result<Response, AgenticFlowError> {
         let url = format!("{}/{}", self.base_url(), endpoint);
@@ -75,13 +80,7 @@ pub trait LLMProvider: Send + Sync {
                 "Authorization",
                 format!("Bearer {}", self.api_key().unwrap_or_default()),
             )
-            .json(&json!({
-                "model": self.model(),
-                "messages": messages,
-                "temperature": temperature,
-                "stream": false,
-                "tools": tools
-            }))
+            .json(&request)
             .send()
             .await
             .map_err(|e| {
@@ -103,7 +102,7 @@ pub trait LLMProvider: Send + Sync {
 struct OllamaProvider {
     client: HttpClient,
     base_url: String,
-    model: &'static str,
+    model: String,
 }
 
 impl OllamaProvider {
@@ -126,29 +125,52 @@ impl LLMProvider for OllamaProvider {
         &self.base_url
     }
 
-    fn model(&self) -> &str {
-        &self.model
-    }
-
     async fn chat_completions(
         &self,
         messages: Vec<ChatMessage>,
         temperature: f32,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        let response = self.send_request(messages, temperature, tools, "api/chat").await?;
+        let req = ChatCompletionRequest {
+            model: self.model.to_string(),
+            messages,
+            temperature,
+            stream: false,
+            tools,
+        };
+        let response = self.send_request(json!(req), "api/chat").await?;
 
         let response_text = response.text().await.unwrap();
         serde_json::from_str::<OllamaResponse>(&response_text)
             .map_err(|e| AgenticFlowError::ParseError(format!("Failed to parse response: {}", e)))
             .map(|res| Box::new(res) as Box<dyn ChatResponse>)
     }
+
+    async fn completion(
+        &self,
+        prompt: String,
+        temperature: f32,
+    ) -> Result<Box<dyn CompletionResponse>, AgenticFlowError> {
+        let request = CompletionRequest {
+            model: self.model.to_string(),
+            prompt: prompt,
+            max_tokens: None,
+            temperature: Some(temperature),
+            stream: Some(false),
+        };
+        let response = self.send_request(json!(request), "api/generate").await?;
+
+        let response_text = response.text().await.unwrap();
+        serde_json::from_str::<OllamaCompletionResponse>(&response_text)
+            .map_err(|e| AgenticFlowError::ParseError(format!("Failed to parse response: {}", e)))
+            .map(|res| Box::new(res) as Box<dyn CompletionResponse>)
+    }
 }
 
 struct OpenRouterProvider {
     client: HttpClient,
     base_url: &'static str,
-    model: &'static str,
+    model: String,
 }
 
 impl OpenRouterProvider {
@@ -171,10 +193,6 @@ impl LLMProvider for OpenRouterProvider {
         &self.base_url
     }
 
-    fn model(&self) -> &str {
-        &self.model
-    }
-
     fn api_key(&self) -> Option<String> {
         match std::env::var("OPENROUTER_API_KEY") {
             Ok(key) => Some(key),
@@ -191,12 +209,39 @@ impl LLMProvider for OpenRouterProvider {
         temperature: f32,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        let response = self.send_request(messages, temperature, tools, "chat/completions").await?;
+        let req = ChatCompletionRequest {
+            model: self.model.to_string(),
+            messages,
+            temperature,
+            stream: false,
+            tools,
+        };
+        let response = self.send_request(json!(req), "chat/completions").await?;
 
         let response_text = response.text().await.unwrap();
         serde_json::from_str::<OpenRouterResponse>(&response_text)
             .map_err(|e| AgenticFlowError::ParseError(format!("Failed to parse response: {}", e)))
             .map(|res| Box::new(res) as Box<dyn ChatResponse>)
+    }
+
+    async fn completion(
+        &self,
+        prompt: String,
+        temperature: f32,
+    ) -> Result<Box<dyn CompletionResponse>, AgenticFlowError> {
+        let request = CompletionRequest {
+            model: self.model.to_string(),
+            prompt,
+            max_tokens: None,
+            temperature: Some(temperature),
+            stream: Some(false),
+        };
+        let response = self.send_request(json!(request), "completions").await?;
+
+        let response_text = response.text().await.unwrap();
+        serde_json::from_str::<OpenRouterCompletionResponse>(&response_text)
+            .map_err(|e| AgenticFlowError::ParseError(format!("Failed to parse response: {}", e)))
+            .map(|res| Box::new(res) as Box<dyn CompletionResponse>)
     }
 }
 
@@ -247,6 +292,15 @@ impl LLMClient {
         messages: Vec<ChatMessage>,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        self.inner.chat_completions(messages, self.temperature, tools).await
+        self.inner
+            .chat_completions(messages, self.temperature, tools)
+            .await
+    }
+
+    pub async fn completion(
+        &self,
+        prompt: String,
+    ) -> Result<Box<dyn CompletionResponse>, AgenticFlowError> {
+        self.inner.completion(prompt, self.temperature).await
     }
 }
