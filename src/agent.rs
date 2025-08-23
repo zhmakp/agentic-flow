@@ -1,11 +1,11 @@
-use serde_json::{Value, json};
+use serde_json::{json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::errors::AgenticFlowError;
 use crate::llm_client::LLMClient;
 use crate::mcp_manager::MCPManager;
-use crate::model::ChatMessage;
+use crate::model::{ChatMessage, ChatResponse};
 use crate::planner::{Executor, PlanStep};
 use crate::tool_registry::{ExecutionContext, ToolRegistry};
 
@@ -64,19 +64,11 @@ impl Agent {
             .await
     }
 
-    async fn synthesize_result(
+    async fn call_llm(
         &self,
-        context: &ExecutionContext,
-    ) -> Result<String, AgenticFlowError> {
-        let messages = vec![
-            ChatMessage::system("Synthesize the following context into result".to_string()),
-            ChatMessage::user(format!("Context: {}", json!(context.data()))),
-        ];
-
-        self.llm_client
-            .chat_completions(messages, vec![])
-            .await
-            .map(|response| response.message().content.to_string())
+        messages: Vec<ChatMessage>,
+    ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
+        self.llm_client.chat_completions(messages, vec![]).await
     }
 }
 
@@ -95,6 +87,9 @@ impl Executor for Agent {
             step += 1;
         }
 
-        self.synthesize_result(&context).await
+        self.call_llm(vec![
+            ChatMessage::system("Synthesize the following context into result".to_string()),
+            ChatMessage::user(format!("Context: {}", json!(context.data()))),
+        ]).await.map(|res| res.message().content.to_string())
     }
 }
