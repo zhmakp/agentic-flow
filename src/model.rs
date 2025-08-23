@@ -48,6 +48,11 @@ impl ChatMessage{
             tool_calls: None,
         }
     }
+
+    pub fn with_tool_calls(mut self, tool_calls: Vec<ToolCall>) -> Self {
+        self.tool_calls = Some(tool_calls);
+        self
+    }
 }
 
 #[derive(Serialize, Deserialize)]

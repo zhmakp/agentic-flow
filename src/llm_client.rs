@@ -227,6 +227,16 @@ impl LLMClient {
         }
     }
 
+    pub fn from<T>(provider: T) -> Self
+    where
+        T: LLMProvider + 'static,
+    {
+        Self {
+            inner: Arc::new(provider),
+            temperature: 0.7,
+        }
+    }
+
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = temperature;
         self

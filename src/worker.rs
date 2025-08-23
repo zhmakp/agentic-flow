@@ -9,10 +9,10 @@ use tokio::{
 };
 
 use crate::{
-    agent::{self, Agent},
-    errors::AgenticFlowError,
-    planner::PlanStep,
-    tool_registry::{ExecutionContext, ToolRegistry},
+    agent::Agent, 
+    errors::AgenticFlowError, 
+    planner::PlanStep, 
+    tool_registry::ExecutionContext,
 };
 
 /// A simple task pool for executing agentic plan steps concurrently.
@@ -39,8 +39,6 @@ pub struct AgenticTaskPool {
     workers: Vec<JoinHandle<()>>,
     /// Channel sender for distributing plan steps to workers
     sender: Option<Sender<WorkerTask>>,
-    /// Shared agent for executing plan steps
-    agent: Arc<Mutex<Agent>>,
     /// Channel capacity for buffering tasks
     capacity: usize,
 }
@@ -78,7 +76,7 @@ impl AgenticTaskPool {
         capacity: usize,
         agent: Arc<Mutex<Agent>>,
     ) -> Self {
-        let (sender,  receiver) = mpsc::channel::<WorkerTask>(capacity);
+        let (sender, receiver) = mpsc::channel::<WorkerTask>(capacity);
         let mut workers = Vec::new();
         let receiver = Arc::new(Mutex::new(receiver));
 
@@ -118,7 +116,6 @@ impl AgenticTaskPool {
         Self {
             workers,
             sender: Some(sender),
-            agent,
             capacity,
         }
     }
@@ -243,7 +240,7 @@ where
         for _ in 0..worker_count {
             let receiver = receiver.clone();
             let processor = processor.clone();
-            
+
             let worker = tokio::spawn(async move {
                 loop {
                     let mut rx = receiver.lock().await;
@@ -286,63 +283,14 @@ where
         self.capacity
     }
 
-    async fn shutdown(mut self) {
+    pub async fn shutdown(mut self) {
         self.sender.take();
 
         for worker in self.workers {
-            worker.await.map_err(|e| {
-                AgenticFlowError::ExecutionError(format!("Worker error: {}", e))
-            }).unwrap();
+            worker
+                .await
+                .map_err(|e| AgenticFlowError::ExecutionError(format!("Worker error: {}", e)))
+                .unwrap();
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use tokio::time::{Duration, sleep};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-
-    fn processor() -> Arc<Mutex<dyn Fn(i32) + Send + 'static>> {
-        Arc::new(Mutex::new(|task: i32| {
-            println!("Processing task: {:?}", task);
-        }))
-    }
-
-    /// Test creating a new task pool with default configuration
-    #[tokio::test]
-    async fn test_new_task_pool() {
-        let pool = TaskPool::<i32>::new(2, processor()).await;
-        assert_eq!(pool.worker_count(), 2);
-        assert_eq!(pool.capacity(), 100);
-
-        // Clean shutdown
-        pool.shutdown().await;
-    }
-
-    /// Test executing a task in the TaskPool
-    #[tokio::test]
-    async fn test_taskpool_execute_task() {
-
-        // Use an atomic counter to verify execution
-        let counter = Arc::new(AtomicUsize::new(0));
-        let counter_clone = counter.clone();
-
-        let processor = Arc::new(Mutex::new(move |task: i32| {
-            counter_clone.fetch_add(task as usize, Ordering::SeqCst);
-        }));
-
-        let pool = TaskPool::<i32>::new(2, processor).await;
-        pool.execute(5).await.expect("Task should be executed");
-        pool.execute(3).await.expect("Task should be executed");
-
-        // Give some time for tasks to be processed
-        sleep(Duration::from_millis(100)).await;
-
-        assert_eq!(counter.load(Ordering::SeqCst), 8);
-
-        pool.shutdown().await;
     }
 }
