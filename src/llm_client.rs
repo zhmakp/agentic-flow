@@ -56,12 +56,14 @@ pub trait LLMProvider: Send + Sync {
     async fn chat_completions(
         &self,
         messages: Vec<ChatMessage>,
+        temperature: f32,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError>;
 
     async fn send_request(
         &self,
         messages: Vec<ChatMessage>,
+        temperature: f32,
         tools: Vec<Value>,
         endpoint: &str,
     ) -> Result<Response, AgenticFlowError> {
@@ -76,6 +78,7 @@ pub trait LLMProvider: Send + Sync {
             .json(&json!({
                 "model": self.model(),
                 "messages": messages,
+                "temperature": temperature,
                 "stream": false,
                 "tools": tools
             }))
@@ -130,9 +133,10 @@ impl LLMProvider for OllamaProvider {
     async fn chat_completions(
         &self,
         messages: Vec<ChatMessage>,
+        temperature: f32,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        let response = self.send_request(messages, tools, "api/chat").await?;
+        let response = self.send_request(messages, temperature, tools, "api/chat").await?;
 
         let response_text = response.text().await.unwrap();
         serde_json::from_str::<OllamaResponse>(&response_text)
@@ -184,9 +188,10 @@ impl LLMProvider for OpenRouterProvider {
     async fn chat_completions(
         &self,
         messages: Vec<ChatMessage>,
+        temperature: f32,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        let response = self.send_request(messages, tools, "chat/completions").await?;
+        let response = self.send_request(messages, temperature, tools, "chat/completions").await?;
 
         let response_text = response.text().await.unwrap();
         serde_json::from_str::<OpenRouterResponse>(&response_text)
@@ -198,6 +203,7 @@ impl LLMProvider for OpenRouterProvider {
 #[derive(Clone)]
 pub struct LLMClient {
     inner: Arc<dyn LLMProvider>,
+    temperature: f32,
 }
 
 impl Default for LLMClient {
@@ -210,13 +216,30 @@ impl LLMClient {
     pub fn from_ollama(model: OllamaModel) -> Self {
         Self {
             inner: Arc::new(OllamaProvider::new(model)),
+            temperature: 0.7,
         }
     }
 
     pub fn from_open_router(model: OpenRouterModel) -> Self {
         Self {
             inner: Arc::new(OpenRouterProvider::new(model)),
+            temperature: 0.7,
         }
+    }
+
+    pub fn from<T>(provider: T) -> Self
+    where
+        T: LLMProvider + 'static,
+    {
+        Self {
+            inner: Arc::new(provider),
+            temperature: 0.7,
+        }
+    }
+
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = temperature;
+        self
     }
 
     pub async fn chat_completions(
@@ -224,6 +247,6 @@ impl LLMClient {
         messages: Vec<ChatMessage>,
         tools: Vec<Value>,
     ) -> Result<Box<dyn ChatResponse>, AgenticFlowError> {
-        self.inner.chat_completions(messages, tools).await
+        self.inner.chat_completions(messages, self.temperature, tools).await
     }
 }
